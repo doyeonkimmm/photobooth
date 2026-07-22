@@ -5,6 +5,7 @@ const $ = (selector, parent = document) => parent.querySelector(selector);
 const $$ = (selector, parent = document) => [...parent.querySelectorAll(selector)];
 
 const video = $('#video');
+const liveCanvas = $('#captureCanvas');
 const resultCanvas = $('#resultCanvas');
 const placeholder = $('#cameraPlaceholder');
 const shutter = $('#shutter');
@@ -13,12 +14,30 @@ const flash = $('#flash');
 const contactSheet = $('#contactSheet');
 const studio = $('#studio');
 const publicAsset = path => `${import.meta.env.BASE_URL}${path.replace(/^\//, '')}`;
+const canvasFilterSupported = 'filter' in document.createElement('canvas').getContext('2d');
+let previewFrame = null;
 
 const filters = {
-  c41: { css: 'sepia(.12) saturate(.72) contrast(.92) brightness(.95)', canvas: 'sepia(12%) saturate(72%) contrast(92%) brightness(95%)', grain: 30, leak: .16 },
-  fade: { css: 'sepia(.27) saturate(.62) contrast(.84) brightness(1.03) hue-rotate(-7deg)', canvas: 'sepia(27%) saturate(62%) contrast(84%) brightness(103%) hue-rotate(-7deg)', grain: 25, leak: .27 },
-  mono: { css: 'grayscale(1) contrast(1.2) brightness(.92)', canvas: 'grayscale(100%) contrast(120%) brightness(92%)', grain: 42, leak: .05 },
-  raw: { css: 'saturate(.82) contrast(1.03) brightness(.96)', canvas: 'saturate(82%) contrast(103%) brightness(96%)', grain: 18, leak: .1 }
+  c41: {
+    css: 'sepia(.16) saturate(.78) contrast(.94) brightness(.97)',
+    grade: { sepia: .16, saturation: .78, contrast: .94, brightness: .97, warmth: .18, fade: .025 },
+    grain: 40, chroma: .18, leak: .2, halation: .12, flash: .15
+  },
+  fade: {
+    css: 'sepia(.34) saturate(.62) contrast(.86) brightness(1.04) hue-rotate(-7deg)',
+    grade: { sepia: .34, saturation: .62, contrast: .86, brightness: 1.04, hue: -7, warmth: .32, fade: .075 },
+    grain: 34, chroma: .22, leak: .3, halation: .18, flash: .18
+  },
+  mono: {
+    css: 'grayscale(1) contrast(1.16) brightness(.94)',
+    grade: { grayscale: 1, contrast: 1.16, brightness: .94, fade: .025 },
+    grain: 56, chroma: 0, leak: .02, halation: .05, flash: .12
+  },
+  raw: {
+    css: 'sepia(.04) saturate(.84) contrast(1.02) brightness(.97)',
+    grade: { sepia: .04, saturation: .84, contrast: 1.02, brightness: .97, warmth: .08, fade: .01 },
+    grain: 24, chroma: .08, leak: .1, halation: .08, flash: .1
+  }
 };
 
 const state = {
@@ -68,6 +87,44 @@ async function initFaceModel() {
   }
 }
 
+function updateLiveFilter() {
+  const cssFilter = filters[state.filter].css;
+  video.style.filter = cssFilter;
+  liveCanvas.style.filter = cssFilter;
+}
+
+function stopCanvasPreview() {
+  if (previewFrame) cancelAnimationFrame(previewFrame);
+  previewFrame = null;
+  liveCanvas.hidden = true;
+  liveCanvas.classList.remove('live-preview', 'ready', 'mirrored');
+  $('#viewfinder').classList.remove('canvas-preview');
+}
+
+function startCanvasPreview() {
+  stopCanvasPreview();
+  if (canvasFilterSupported) return;
+
+  const ctx = liveCanvas.getContext('2d');
+  liveCanvas.width = 640;
+  liveCanvas.height = 480;
+  liveCanvas.hidden = false;
+  liveCanvas.classList.add('live-preview', 'ready');
+  liveCanvas.classList.toggle('mirrored', state.facingMode === 'user');
+  $('#viewfinder').classList.add('canvas-preview');
+  updateLiveFilter();
+
+  const drawPreview = () => {
+    if (!state.stream) return;
+    if (video.readyState >= 2) {
+      const crop = cropSquare(video.videoWidth, video.videoHeight);
+      ctx.drawImage(video, crop.x, crop.y, crop.size, crop.size, 0, 0, liveCanvas.width, liveCanvas.height);
+    }
+    previewFrame = requestAnimationFrame(drawPreview);
+  };
+  drawPreview();
+}
+
 async function startCamera() {
   if (!navigator.mediaDevices?.getUserMedia) {
     toast('CAMERA UNAVAILABLE');
@@ -84,6 +141,8 @@ async function startCamera() {
     await video.play();
     placeholder.classList.add('hidden');
     video.classList.add('ready');
+    video.classList.toggle('mirrored', state.facingMode === 'user');
+    startCanvasPreview();
     shutter.disabled = false;
   } catch {
     placeholder.classList.remove('hidden');
@@ -93,6 +152,7 @@ async function startCamera() {
 }
 
 function stopCamera() {
+  stopCanvasPreview();
   state.stream?.getTracks().forEach(track => track.stop());
   state.stream = null;
 }
@@ -505,9 +565,229 @@ function softenSkin(canvas) {
   ctx.restore();
 }
 
+function applyColorGrade(canvas, preset) {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = image.data;
+  const {
+    sepia = 0,
+    grayscale = 0,
+    saturation = 1,
+    contrast = 1,
+    brightness = 1,
+    hue = 0,
+    warmth = 0,
+    fade = 0
+  } = preset.grade;
+  const radians = hue * Math.PI / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  const hueMatrix = [
+    .213 + cosine * .787 - sine * .213, .715 - cosine * .715 - sine * .715, .072 - cosine * .072 + sine * .928,
+    .213 - cosine * .213 + sine * .143, .715 + cosine * .285 + sine * .14, .072 - cosine * .072 - sine * .283,
+    .213 - cosine * .213 - sine * .787, .715 - cosine * .715 + sine * .715, .072 + cosine * .928 + sine * .072
+  ];
+
+  for (let index = 0; index < data.length; index += 4) {
+    let red = data[index];
+    let green = data[index + 1];
+    let blue = data[index + 2];
+
+    if (sepia) {
+      const sr = red * .393 + green * .769 + blue * .189;
+      const sg = red * .349 + green * .686 + blue * .168;
+      const sb = red * .272 + green * .534 + blue * .131;
+      red += (sr - red) * sepia;
+      green += (sg - green) * sepia;
+      blue += (sb - blue) * sepia;
+    }
+
+    if (grayscale) {
+      const luminance = red * .213 + green * .715 + blue * .072;
+      red += (luminance - red) * grayscale;
+      green += (luminance - green) * grayscale;
+      blue += (luminance - blue) * grayscale;
+    }
+
+    if (saturation !== 1) {
+      const luminance = red * .213 + green * .715 + blue * .072;
+      red = luminance + (red - luminance) * saturation;
+      green = luminance + (green - luminance) * saturation;
+      blue = luminance + (blue - luminance) * saturation;
+    }
+
+    if (hue) {
+      const sourceRed = red;
+      const sourceGreen = green;
+      const sourceBlue = blue;
+      red = sourceRed * hueMatrix[0] + sourceGreen * hueMatrix[1] + sourceBlue * hueMatrix[2];
+      green = sourceRed * hueMatrix[3] + sourceGreen * hueMatrix[4] + sourceBlue * hueMatrix[5];
+      blue = sourceRed * hueMatrix[6] + sourceGreen * hueMatrix[7] + sourceBlue * hueMatrix[8];
+    }
+
+    red = ((red - 127.5) * contrast + 127.5) * brightness;
+    green = ((green - 127.5) * contrast + 127.5) * brightness;
+    blue = ((blue - 127.5) * contrast + 127.5) * brightness;
+    red += warmth * 18;
+    green += warmth * 3;
+    blue -= warmth * 12;
+    red = red * (1 - fade) + 28 * fade;
+    green = green * (1 - fade) + 25 * fade;
+    blue = blue * (1 - fade) + 22 * fade;
+
+    data[index] = Math.max(0, Math.min(255, red));
+    data[index + 1] = Math.max(0, Math.min(255, green));
+    data[index + 2] = Math.max(0, Math.min(255, blue));
+  }
+  ctx.putImageData(image, 0, 0);
+}
+
+function applyCoolFaceTone(canvas, faces) {
+  if (!faces.length) return;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = image.data;
+  const w = canvas.width;
+  const h = canvas.height;
+
+  faces.forEach(landmarks => {
+    const left = averagePoint(landmarks, [234, 93, 132, 58], w, h);
+    const right = averagePoint(landmarks, [454, 323, 361, 288], w, h);
+    const forehead = averagePoint(landmarks, [10, 338, 109], w, h);
+    const chin = averagePoint(landmarks, [152, 175, 199], w, h);
+    const center = { x: (left.x + right.x) / 2, y: (forehead.y + chin.y) / 2 };
+    const faceWidth = Math.hypot(right.x - left.x, right.y - left.y) * 1.08;
+    const faceHeight = Math.hypot(chin.x - forehead.x, chin.y - forehead.y) * 1.04;
+    const angle = Math.atan2(right.y - left.y, right.x - left.x);
+    const cosine = Math.cos(angle);
+    const sine = Math.sin(angle);
+    const minX = Math.max(0, Math.floor(center.x - faceWidth * .62));
+    const maxX = Math.min(w - 1, Math.ceil(center.x + faceWidth * .62));
+    const minY = Math.max(0, Math.floor(center.y - faceHeight * .58));
+    const maxY = Math.min(h - 1, Math.ceil(center.y + faceHeight * .58));
+
+    for (let y = minY; y <= maxY; y += 1) {
+      for (let x = minX; x <= maxX; x += 1) {
+        const dx = x - center.x;
+        const dy = y - center.y;
+        const localX = dx * cosine + dy * sine;
+        const localY = -dx * sine + dy * cosine;
+        const distance = Math.sqrt((localX / (faceWidth * .54)) ** 2 + (localY / (faceHeight * .54)) ** 2);
+        if (distance >= 1) continue;
+
+        const feather = Math.min(1, (1 - distance) / .22);
+        const index = (y * w + x) * 4;
+        const red = data[index];
+        const green = data[index + 1];
+        const blue = data[index + 2];
+        const cb = 128 - red * .1687 - green * .3313 + blue * .5;
+        const cr = 128 + red * .5 - green * .4187 - blue * .0813;
+        const skin = cb > 72 && cb < 145 && cr > 124 && cr < 192 && red > 38 && green > 30 && blue > 22;
+        if (!skin) continue;
+
+        const luminance = red * .213 + green * .715 + blue * .072;
+        const shadowGuard = Math.min(1, Math.max(0, (luminance - 36) / 76));
+        const strength = feather * shadowGuard;
+        data[index] = red + (239 - red) * .055 * strength;
+        data[index + 1] = green + (248 - green) * .082 * strength;
+        data[index + 2] = blue + (255 - blue) * .12 * strength;
+      }
+    }
+  });
+  ctx.putImageData(image, 0, 0);
+}
+
+function addDirectFlash(canvas, amount) {
+  if (!amount) return;
+  const ctx = canvas.getContext('2d');
+  ctx.save();
+  ctx.translate(canvas.width * .5, canvas.height * .42);
+  ctx.scale(1, .82);
+  const glow = ctx.createRadialGradient(0, 0, canvas.width * .04, 0, 0, canvas.width * .72);
+  glow.addColorStop(0, `rgba(242,249,255,${amount})`);
+  glow.addColorStop(.32, `rgba(232,244,255,${amount * .72})`);
+  glow.addColorStop(.7, `rgba(255,247,235,${amount * .22})`);
+  glow.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.globalCompositeOperation = 'screen';
+  ctx.fillStyle = glow;
+  ctx.fillRect(-canvas.width, -canvas.height, canvas.width * 2, canvas.height * 2);
+  ctx.restore();
+}
+
+function addHalation(canvas, amount) {
+  if (!amount) return;
+  const sample = document.createElement('canvas');
+  sample.width = 90;
+  sample.height = 90;
+  const sampleCtx = sample.getContext('2d', { willReadFrequently: true });
+  sampleCtx.drawImage(canvas, 0, 0, sample.width, sample.height);
+  const image = sampleCtx.getImageData(0, 0, sample.width, sample.height);
+  for (let index = 0; index < image.data.length; index += 4) {
+    const luminance = image.data[index] * .213 + image.data[index + 1] * .715 + image.data[index + 2] * .072;
+    const glow = Math.max(0, (luminance - 168) / 87);
+    image.data[index] = 255;
+    image.data[index + 1] = 78;
+    image.data[index + 2] = 34;
+    image.data[index + 3] = glow * 170;
+  }
+  sampleCtx.putImageData(image, 0, 0);
+  const ctx = canvas.getContext('2d');
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  ctx.globalAlpha = amount;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(sample, -8, -5, canvas.width + 16, canvas.height + 10);
+  ctx.restore();
+}
+
+function addFilmGrain(canvas, preset) {
+  const size = Math.max(260, Math.round(canvas.width / 2));
+  const grainCanvas = document.createElement('canvas');
+  grainCanvas.width = size;
+  grainCanvas.height = size;
+  const grainCtx = grainCanvas.getContext('2d');
+  const grainImage = grainCtx.createImageData(size, size);
+  const monochrome = state.filter === 'mono';
+
+  for (let index = 0; index < grainImage.data.length; index += 4) {
+    const base = 128 + (Math.random() - .5) * preset.grain * 3.4;
+    const colorNoise = preset.chroma * preset.grain;
+    grainImage.data[index] = base + (monochrome ? 0 : (Math.random() - .5) * colorNoise);
+    grainImage.data[index + 1] = base + (monochrome ? 0 : (Math.random() - .5) * colorNoise * .7);
+    grainImage.data[index + 2] = base + (monochrome ? 0 : (Math.random() - .5) * colorNoise * 1.2);
+    grainImage.data[index + 3] = 150 + Math.random() * 80;
+  }
+  grainCtx.putImageData(grainImage, 0, 0);
+
+  const ctx = canvas.getContext('2d');
+  ctx.save();
+  ctx.globalCompositeOperation = 'soft-light';
+  ctx.globalAlpha = .32 + preset.grain / 190;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(grainCanvas, 0, 0, canvas.width, canvas.height);
+  ctx.restore();
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  for (let index = 0; index < Math.round(preset.grain * 1.8); index += 1) {
+    const radius = Math.random() * 1.7 + .25;
+    ctx.globalAlpha = Math.random() * .16;
+    ctx.fillStyle = monochrome ? '#f4f1e7' : (Math.random() > .5 ? '#f0c0a0' : '#b5cad0');
+    ctx.beginPath();
+    ctx.arc(Math.random() * canvas.width, Math.random() * canvas.height, radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 function applyFilmTexture(canvas) {
   const ctx = canvas.getContext('2d');
-  const { grain, leak } = filters[state.filter];
+  const preset = filters[state.filter];
+  const { grain, leak, halation } = preset;
+
+  addHalation(canvas, halation);
+  addDirectFlash(canvas, preset.flash);
 
   ctx.save();
   const vignette = ctx.createRadialGradient(canvas.width * .5, canvas.height * .46, canvas.width * .16, canvas.width * .5, canvas.height * .5, canvas.width * .72);
@@ -530,21 +810,18 @@ function applyFilmTexture(canvas) {
   }
   ctx.restore();
 
-  const specks = Math.round(canvas.width * canvas.height / 170);
+  addFilmGrain(canvas, preset);
+
   ctx.save();
-  for (let i = 0; i < specks; i += 1) {
-    const alpha = Math.random() * grain / 360;
-    ctx.fillStyle = Math.random() > .48 ? `rgba(244,239,220,${alpha})` : `rgba(8,8,7,${alpha})`;
-    const size = Math.random() * 2.8 + .4;
-    ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, size, size);
-  }
-  ctx.globalAlpha = grain / 90;
-  ctx.strokeStyle = 'rgba(255,255,244,.16)';
-  for (let i = 0; i < 4; i += 1) {
+  ctx.globalAlpha = grain / 420;
+  ctx.strokeStyle = 'rgba(255,248,228,.24)';
+  ctx.lineWidth = .7;
+  const scratches = 1 + Math.floor(Math.random() * 4);
+  for (let index = 0; index < scratches; index += 1) {
     const x = Math.random() * canvas.width;
     ctx.beginPath();
-    ctx.moveTo(x, Math.random() * canvas.height * .25);
-    ctx.lineTo(x + Math.random() * 2, canvas.height * (.5 + Math.random() * .5));
+    ctx.moveTo(x, Math.random() * canvas.height * .3);
+    ctx.bezierCurveTo(x + Math.random() * 2, canvas.height * .35, x - Math.random() * 2, canvas.height * .7, x + Math.random() * 2, canvas.height * (.72 + Math.random() * .28));
     ctx.stroke();
   }
   ctx.restore();
@@ -567,10 +844,14 @@ async function createProcessedPhoto(source) {
   ctx.drawImage(source, crop.x, crop.y, crop.size, crop.size, 0, 0, canvas.width, canvas.height);
   ctx.restore();
 
-  if (state.faceReady && (state.eyes || state.nose || state.jaw || state.face)) {
+  let detectedFaces = [];
+  if (state.faceReady) {
     try {
       const result = state.faceLandmarker.detect(canvas);
-      result.faceLandmarks?.forEach(landmarks => applyFaceShape(canvas, landmarks));
+      detectedFaces = result.faceLandmarks || [];
+      if (state.eyes || state.nose || state.jaw || state.face) {
+        detectedFaces.forEach(landmarks => applyFaceShape(canvas, landmarks));
+      }
     } catch (error) {
       console.warn('Face retouch skipped', error);
     }
@@ -581,8 +862,9 @@ async function createProcessedPhoto(source) {
   filtered.width = canvas.width;
   filtered.height = canvas.height;
   const fctx = filtered.getContext('2d');
-  fctx.filter = filters[state.filter].canvas;
   fctx.drawImage(canvas, 0, 0);
+  applyColorGrade(filtered, filters[state.filter]);
+  applyCoolFaceTone(filtered, detectedFaces);
   applyFilmTexture(filtered);
   return filtered.toDataURL('image/jpeg', .94);
 }
@@ -775,7 +1057,7 @@ $$('.film').forEach(button => button.addEventListener('click', () => {
     item.classList.toggle('active', item === button);
     item.setAttribute('aria-pressed', item === button);
   });
-  video.style.filter = filters[state.filter].css;
+  updateLiveFilter();
 }));
 
 [
@@ -810,6 +1092,6 @@ $('#downloadButton').addEventListener('click', () => {
   toast('SAVED');
 });
 
-video.style.filter = filters[state.filter].css;
+updateLiveFilter();
 window.addEventListener('beforeunload', stopCamera);
 initFaceModel();

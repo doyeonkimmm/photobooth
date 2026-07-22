@@ -36,8 +36,12 @@ main { padding: 58px 30px 100px; }
 .camera-meta b { color: var(--paper); font-weight: 400; }
 .viewfinder { position: relative; overflow: hidden; aspect-ratio: 4 / 3; background: #111; border: 1px solid #2a2a27; isolation: isolate; }
 .viewfinder::after { content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none; box-shadow: inset 0 0 80px rgba(0,0,0,.72); }
-.viewfinder video { width: 100%; height: 100%; display: block; object-fit: cover; opacity: 0; transform: scaleX(-1); transition: opacity .25s; }
+.viewfinder video { width: 100%; height: 100%; display: block; object-fit: cover; opacity: 0; transition: opacity .25s; }
 .viewfinder video.ready { opacity: 1; }
+.viewfinder video.mirrored { transform: scaleX(-1); }
+.viewfinder canvas.live-preview { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; display: block; object-fit: cover; }
+.viewfinder canvas.live-preview.mirrored { transform: scaleX(-1); }
+.viewfinder.canvas-preview video { opacity: 0; }
 .camera-placeholder { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background: #11110f; transition: opacity .2s; }
 .camera-placeholder.hidden { opacity: 0; pointer-events: none; }
 .start-button { display: flex; flex-direction: column; align-items: center; gap: 13px; border: 0; color: var(--paper); background: transparent; font-size: 9px; letter-spacing: .22em; cursor: pointer; }

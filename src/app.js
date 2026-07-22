@@ -19,23 +19,23 @@ let previewFrame = null;
 
 const filters = {
   c41: {
-    css: 'sepia(.12) saturate(.86) contrast(1) brightness(.95)',
-    grade: { sepia: .12, saturation: .86, contrast: 1, brightness: .95, warmth: .14, fade: .012 },
-    grain: 20, chroma: .1, leak: .13, halation: .07, flash: .72
+    css: 'sepia(.14) saturate(.82) contrast(.92) brightness(1)',
+    grade: { sepia: .14, saturation: .82, contrast: .92, brightness: 1, warmth: .18, fade: .03, midtoneLift: 8 },
+    grain: 20, chroma: .1, leak: .18, halation: .1, flash: .72
   },
   fade: {
     css: 'sepia(.34) saturate(.62) contrast(.84) brightness(1.03) hue-rotate(-7deg)',
-    grade: { sepia: .34, saturation: .62, contrast: .84, brightness: 1.03, hue: -7, warmth: .32, fade: .08 },
+    grade: { sepia: .34, saturation: .62, contrast: .84, brightness: 1.03, hue: -7, warmth: .32, fade: .08, midtoneLift: 11 },
     grain: 18, chroma: .13, leak: .2, halation: .1, flash: .68
   },
   mono: {
     css: 'grayscale(1) contrast(1.22) brightness(.92)',
-    grade: { grayscale: 1, contrast: 1.22, brightness: .92, fade: .015 },
+    grade: { grayscale: 1, contrast: 1.22, brightness: .92, fade: .015, midtoneLift: 5 },
     grain: 27, chroma: 0, leak: .01, halation: .035, flash: .7
   },
   raw: {
     css: 'saturate(.86) contrast(1.08) brightness(.95)',
-    grade: { saturation: .86, contrast: 1.08, brightness: .95, cool: .55, fade: .004 },
+    grade: { saturation: .86, contrast: 1.08, brightness: .95, cool: .55, fade: .004, midtoneLift: 4 },
     grain: 12, chroma: .08, leak: .035, halation: .025, flash: .6
   }
 };
@@ -335,7 +335,7 @@ function renderFaceMesh(canvas, landmarks, destinationPoints, includeOuterRing =
   sourceCanvas.width = width;
   sourceCanvas.height = height;
   sourceCanvas.getContext('2d').drawImage(canvas, 0, 0);
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
   ctx.drawImage(sourceCanvas, 0, 0);
 
   const tessellation = FaceLandmarker.FACE_LANDMARKS_TESSELATION;
@@ -566,6 +566,72 @@ function softenSkin(canvas) {
   ctx.restore();
 }
 
+function normalizeSourceLight(canvas, faces) {
+  if (!faces.length) return;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = image.data;
+  const w = canvas.width;
+  const h = canvas.height;
+  let luminanceSum = 0;
+  let sampleCount = 0;
+
+  faces.forEach(landmarks => {
+    const left = averagePoint(landmarks, [234, 93, 132, 58], w, h);
+    const right = averagePoint(landmarks, [454, 323, 361, 288], w, h);
+    const forehead = averagePoint(landmarks, [10, 338, 109], w, h);
+    const chin = averagePoint(landmarks, [152, 175, 199], w, h);
+    const center = { x: (left.x + right.x) / 2, y: (forehead.y + chin.y) / 2 };
+    const radiusX = Math.hypot(right.x - left.x, right.y - left.y) * .48;
+    const radiusY = Math.hypot(chin.x - forehead.x, chin.y - forehead.y) * .48;
+    const angle = Math.atan2(right.y - left.y, right.x - left.x);
+    const cosine = Math.cos(angle);
+    const sine = Math.sin(angle);
+    const minX = Math.max(0, Math.floor(center.x - radiusX));
+    const maxX = Math.min(w - 1, Math.ceil(center.x + radiusX));
+    const minY = Math.max(0, Math.floor(center.y - radiusY));
+    const maxY = Math.min(h - 1, Math.ceil(center.y + radiusY));
+
+    for (let y = minY; y <= maxY; y += 3) {
+      for (let x = minX; x <= maxX; x += 3) {
+        const dx = x - center.x;
+        const dy = y - center.y;
+        const localX = dx * cosine + dy * sine;
+        const localY = -dx * sine + dy * cosine;
+        if ((localX / radiusX) ** 2 + (localY / radiusY) ** 2 >= .86) continue;
+        const index = (y * w + x) * 4;
+        const red = data[index];
+        const green = data[index + 1];
+        const blue = data[index + 2];
+        const cb = 128 - red * .1687 - green * .3313 + blue * .5;
+        const cr = 128 + red * .5 - green * .4187 - blue * .0813;
+        if (cb <= 72 || cb >= 145 || cr <= 124 || cr >= 192) continue;
+        luminanceSum += red * .213 + green * .715 + blue * .072;
+        sampleCount += 1;
+      }
+    }
+  });
+
+  if (sampleCount < 30) return;
+  const averageFaceLuminance = luminanceSum / sampleCount;
+  const correction = Math.min(18, Math.max(0, 158 - averageFaceLuminance));
+  if (correction < .5) return;
+
+  for (let index = 0; index < data.length; index += 4) {
+    const red = data[index];
+    const green = data[index + 1];
+    const blue = data[index + 2];
+    const luminance = red * .213 + green * .715 + blue * .072;
+    const normalized = Math.min(1, Math.max(0, luminance / 255));
+    const midtoneWeight = Math.pow(Math.sin(Math.PI * normalized), .72);
+    const lift = correction * midtoneWeight;
+    data[index] = Math.min(255, red + lift * 1.035);
+    data[index + 1] = Math.min(255, green + lift);
+    data[index + 2] = Math.min(255, blue + lift * .965);
+  }
+  ctx.putImageData(image, 0, 0);
+}
+
 function applyColorGrade(canvas, preset) {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -579,6 +645,7 @@ function applyColorGrade(canvas, preset) {
     hue = 0,
     warmth = 0,
     cool = 0,
+    midtoneLift = 0,
     fade = 0
   } = preset.grade;
   const radians = hue * Math.PI / 180;
@@ -639,6 +706,13 @@ function applyColorGrade(canvas, preset) {
       red -= cool * 14 * shadowBias;
       green += cool * 4 * shadowBias;
       blue += cool * 22 * shadowBias;
+    }
+    if (midtoneLift) {
+      const luminance = Math.min(255, Math.max(0, red * .213 + green * .715 + blue * .072));
+      const midtoneWeight = Math.pow(Math.sin(Math.PI * luminance / 255), .82);
+      red += midtoneLift * midtoneWeight * 1.04;
+      green += midtoneLift * midtoneWeight;
+      blue += midtoneLift * midtoneWeight * .96;
     }
     red = red * (1 - fade) + 28 * fade;
     green = green * (1 - fade) + 25 * fade;
@@ -793,7 +867,7 @@ function addHalation(canvas, amount) {
     image.data[index + 3] = glow * 170;
   }
   sampleCtx.putImageData(image, 0, 0);
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
   ctx.save();
   ctx.globalCompositeOperation = 'screen';
   ctx.globalAlpha = amount;
@@ -892,7 +966,7 @@ async function createProcessedPhoto(source) {
   const canvas = document.createElement('canvas');
   canvas.width = 900;
   canvas.height = 900;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
   const sw = source.videoWidth || source.naturalWidth || source.width;
   const sh = source.videoHeight || source.naturalHeight || source.height;
   const crop = cropSquare(sw, sh);
@@ -910,6 +984,7 @@ async function createProcessedPhoto(source) {
     try {
       const result = state.faceLandmarker.detect(canvas);
       detectedFaces = result.faceLandmarks || [];
+      normalizeSourceLight(canvas, detectedFaces);
       if (state.eyes || state.nose || state.jaw || state.face) {
         detectedFaces.forEach(landmarks => applyFaceShape(canvas, landmarks));
       }
@@ -922,7 +997,7 @@ async function createProcessedPhoto(source) {
   const filtered = document.createElement('canvas');
   filtered.width = canvas.width;
   filtered.height = canvas.height;
-  const fctx = filtered.getContext('2d');
+  const fctx = filtered.getContext('2d', { colorSpace: 'srgb' });
   fctx.drawImage(canvas, 0, 0);
   applyColorGrade(filtered, filters[state.filter]);
   applyDirectFlash(filtered, detectedFaces, filters[state.filter].flash);
@@ -1035,7 +1110,7 @@ async function renderResult() {
     image.onload = () => resolve(image);
     image.src = src;
   })));
-  const ctx = resultCanvas.getContext('2d');
+  const ctx = resultCanvas.getContext('2d', { colorSpace: 'srgb' });
 
   if (state.frame === 'strip') {
     resultCanvas.width = 620;

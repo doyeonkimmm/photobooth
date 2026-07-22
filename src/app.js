@@ -704,50 +704,61 @@ function applyDirectFlash(canvas, faces, amount) {
   const data = image.data;
   const w = canvas.width;
   const h = canvas.height;
-  let centerX = w * .5;
-  let centerY = h * .43;
-  let radiusX = w * .5;
-  let radiusY = h * .56;
-
-  if (faces.length) {
-    const bounds = faces.map(landmarks => {
-      const left = averagePoint(landmarks, [234, 93, 132, 58], w, h);
-      const right = averagePoint(landmarks, [454, 323, 361, 288], w, h);
-      const forehead = averagePoint(landmarks, [10, 338, 109], w, h);
-      const chin = averagePoint(landmarks, [152, 175, 199], w, h);
-      return { left, right, forehead, chin };
-    });
-    centerX = bounds.reduce((sum, face) => sum + (face.left.x + face.right.x) / 2, 0) / bounds.length;
-    centerY = bounds.reduce((sum, face) => sum + (face.forehead.y + face.chin.y) / 2, 0) / bounds.length;
-    const minX = Math.min(...bounds.flatMap(face => [face.left.x, face.right.x]));
-    const maxX = Math.max(...bounds.flatMap(face => [face.left.x, face.right.x]));
-    const minY = Math.min(...bounds.flatMap(face => [face.forehead.y, face.chin.y]));
-    const maxY = Math.max(...bounds.flatMap(face => [face.forehead.y, face.chin.y]));
-    radiusX = Math.max(w * .42, (maxX - minX) * 1.48);
-    radiusY = Math.max(h * .48, (maxY - minY) * 1.42);
-  }
+  const faceZones = faces.map(landmarks => {
+    const left = averagePoint(landmarks, [234, 93, 132, 58], w, h);
+    const right = averagePoint(landmarks, [454, 323, 361, 288], w, h);
+    const forehead = averagePoint(landmarks, [10, 338, 109], w, h);
+    const chin = averagePoint(landmarks, [152, 175, 199], w, h);
+    const center = { x: (left.x + right.x) / 2, y: (forehead.y + chin.y) / 2 };
+    const angle = Math.atan2(right.y - left.y, right.x - left.x);
+    return {
+      center,
+      radiusX: Math.hypot(right.x - left.x, right.y - left.y) * .56,
+      radiusY: Math.hypot(chin.x - forehead.x, chin.y - forehead.y) * .56,
+      cosine: Math.cos(angle),
+      sine: Math.sin(angle)
+    };
+  });
 
   for (let y = 0; y < h; y += 1) {
     for (let x = 0; x < w; x += 1) {
       const index = (y * w + x) * 4;
-      const dx = (x - centerX) / radiusX;
-      const dy = (y - centerY) / radiusY;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      const proximity = Math.pow(Math.max(0, 1 - distance), .62);
-      const edge = Math.min(1, Math.max(0, (distance - .38) / .82));
       let red = data[index];
       let green = data[index + 1];
       let blue = data[index + 2];
       const luminance = red * .213 + green * .715 + blue * .072;
-      const flash = amount * proximity;
-      const backgroundFalloff = 1 - amount * .24 * edge;
-      const contrast = 1 + flash * .14;
-      const lift = flash * (34 + (1 - luminance / 255) * 52);
-      const specular = Math.max(0, (luminance - 138) / 117) * flash * 24;
+      const shadowWeight = Math.max(0, 1 - luminance / 155);
+      const ambientScale = 1 - amount * .055 * shadowWeight;
+      const sceneContrast = 1 + amount * .045;
+      const baseLift = amount * 2.4;
+      let faceMask = 0;
 
-      red = ((red * backgroundFalloff - 127.5) * contrast + 127.5) + lift * .94 + specular;
-      green = ((green * backgroundFalloff - 127.5) * contrast + 127.5) + lift + specular;
-      blue = ((blue * backgroundFalloff - 127.5) * contrast + 127.5) + lift * 1.06 + specular * 1.04;
+      for (const zone of faceZones) {
+        const dx = x - zone.center.x;
+        const dy = y - zone.center.y;
+        const localX = dx * zone.cosine + dy * zone.sine;
+        const localY = -dx * zone.sine + dy * zone.cosine;
+        const distance = Math.sqrt((localX / zone.radiusX) ** 2 + (localY / zone.radiusY) ** 2);
+        if (distance < 1) faceMask = Math.max(faceMask, Math.min(1, (1 - distance) / .2));
+      }
+
+      red = ((red * ambientScale - 127.5) * sceneContrast + 127.5) + baseLift * .96;
+      green = ((green * ambientScale - 127.5) * sceneContrast + 127.5) + baseLift;
+      blue = ((blue * ambientScale - 127.5) * sceneContrast + 127.5) + baseLift * 1.04;
+
+      if (faceMask) {
+        const cb = 128 - red * .1687 - green * .3313 + blue * .5;
+        const cr = 128 + red * .5 - green * .4187 - blue * .0813;
+        const skin = cb > 72 && cb < 145 && cr > 124 && cr < 192 && red > 38 && green > 30 && blue > 22;
+        if (skin) {
+          const flash = amount * faceMask;
+          const lift = flash * (10 + (1 - luminance / 255) * 28);
+          const specular = Math.max(0, (luminance - 145) / 110) * flash * 14;
+          red += lift * .95 + specular;
+          green += lift + specular;
+          blue += lift * 1.045 + specular * 1.02;
+        }
+      }
       data[index] = Math.max(0, Math.min(255, red));
       data[index + 1] = Math.max(0, Math.min(255, green));
       data[index + 2] = Math.max(0, Math.min(255, blue));
@@ -771,9 +782,9 @@ function restoreLipTone(sourceCanvas, targetCanvas, faces) {
     const top = averagePoint(landmarks, [0, 13, 37, 267], w, h);
     const bottom = averagePoint(landmarks, [17, 14, 84, 314], w, h);
     const center = { x: (left.x + right.x + top.x + bottom.x) / 4, y: (left.y + right.y + top.y + bottom.y) / 4 };
-    const width = Math.hypot(right.x - left.x, right.y - left.y) * 1.08;
-    const measuredHeight = Math.hypot(bottom.x - top.x, bottom.y - top.y) * 1.45;
-    const height = Math.max(measuredHeight, width * .24);
+    const width = Math.hypot(right.x - left.x, right.y - left.y) * 1.02;
+    const measuredHeight = Math.hypot(bottom.x - top.x, bottom.y - top.y) * 1.18;
+    const height = Math.max(measuredHeight, width * .19);
     const angle = Math.atan2(right.y - left.y, right.x - left.x);
     const cosine = Math.cos(angle);
     const sine = Math.sin(angle);
@@ -792,23 +803,13 @@ function restoreLipTone(sourceCanvas, targetCanvas, faces) {
         if (distance >= 1) continue;
         const feather = Math.min(1, (1 - distance) / .28);
         const index = (y * w + x) * 4;
-        const sr = source.data[index];
-        const sg = source.data[index + 1];
-        const sb = source.data[index + 2];
         const tr = target.data[index];
         const tg = target.data[index + 1];
         const tb = target.data[index + 2];
-        const sourceLuminance = Math.max(1, sr * .213 + sg * .715 + sb * .072);
-        const targetLuminance = tr * .213 + tg * .715 + tb * .072;
-        const scale = Math.min(1.45, targetLuminance / sourceLuminance);
-        const blend = feather * .5;
-        const naturalRed = sr * scale;
-        const naturalGreen = sg * scale;
-        const naturalBlue = sb * scale;
-        const rose = (5 + Math.max(0, sr - (sg + sb) / 2) * .08) * feather;
-        target.data[index] = Math.min(255, tr * (1 - blend) + naturalRed * blend + rose);
-        target.data[index + 1] = Math.min(255, tg * (1 - blend) + naturalGreen * blend);
-        target.data[index + 2] = Math.min(255, tb * (1 - blend) + naturalBlue * blend + rose * .16);
+        const blend = feather * .82;
+        target.data[index] = tr * (1 - blend) + source.data[index] * blend;
+        target.data[index + 1] = tg * (1 - blend) + source.data[index + 1] * blend;
+        target.data[index + 2] = tb * (1 - blend) + source.data[index + 2] * blend;
       }
     }
   });
@@ -871,9 +872,9 @@ function addFilmGrain(canvas, preset) {
 
   ctx.save();
   ctx.globalCompositeOperation = 'screen';
-  for (let index = 0; index < Math.round(preset.grain * .55); index += 1) {
-    const radius = Math.random() * 1 + .2;
-    ctx.globalAlpha = Math.random() * .08;
+  for (let index = 0; index < Math.round(preset.grain * 2.1); index += 1) {
+    const radius = Math.random() * 1.35 + .2;
+    ctx.globalAlpha = Math.random() * .12;
     ctx.fillStyle = monochrome ? '#f4f1e7' : (Math.random() > .5 ? '#f0c0a0' : '#b5cad0');
     ctx.beginPath();
     ctx.arc(Math.random() * canvas.width, Math.random() * canvas.height, radius, 0, Math.PI * 2);
@@ -893,7 +894,7 @@ function applyFilmTexture(canvas) {
   const vignette = ctx.createRadialGradient(canvas.width * .5, canvas.height * .46, canvas.width * .16, canvas.width * .5, canvas.height * .5, canvas.width * .72);
   vignette.addColorStop(0, 'rgba(0,0,0,0)');
   vignette.addColorStop(.72, 'rgba(0,0,0,.04)');
-  vignette.addColorStop(1, 'rgba(0,0,0,.3)');
+  vignette.addColorStop(1, 'rgba(0,0,0,.24)');
   ctx.fillStyle = vignette;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -913,10 +914,10 @@ function applyFilmTexture(canvas) {
   addFilmGrain(canvas, preset);
 
   ctx.save();
-  ctx.globalAlpha = grain / 720;
+  ctx.globalAlpha = grain / 360;
   ctx.strokeStyle = 'rgba(255,248,228,.24)';
-  ctx.lineWidth = .45;
-  const scratches = Math.random() > .45 ? 1 : 0;
+  ctx.lineWidth = .6;
+  const scratches = 1 + Math.floor(Math.random() * 3);
   for (let index = 0; index < scratches; index += 1) {
     const x = Math.random() * canvas.width;
     ctx.beginPath();
@@ -964,9 +965,13 @@ async function createProcessedPhoto(source) {
   const fctx = filtered.getContext('2d');
   fctx.drawImage(canvas, 0, 0);
   applyColorGrade(filtered, filters[state.filter]);
+  const preFlash = document.createElement('canvas');
+  preFlash.width = filtered.width;
+  preFlash.height = filtered.height;
+  preFlash.getContext('2d').drawImage(filtered, 0, 0);
   applyDirectFlash(filtered, detectedFaces, filters[state.filter].flash);
   applyCoolFaceTone(filtered, detectedFaces);
-  restoreLipTone(canvas, filtered, detectedFaces);
+  restoreLipTone(preFlash, filtered, detectedFaces);
   applyFilmTexture(filtered);
   return filtered.toDataURL('image/jpeg', .94);
 }

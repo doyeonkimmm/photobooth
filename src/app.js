@@ -19,24 +19,24 @@ let previewFrame = null;
 
 const filters = {
   c41: {
-    css: 'sepia(.1) saturate(.88) contrast(.98) brightness(.96)',
-    grade: { sepia: .1, saturation: .88, contrast: .98, brightness: .96, warmth: .1, fade: .012 },
+    css: 'sepia(.12) saturate(.86) contrast(1) brightness(.95)',
+    grade: { sepia: .12, saturation: .86, contrast: 1, brightness: .95, warmth: .14, fade: .012 },
     grain: 20, chroma: .1, leak: .13, halation: .07, flash: .72
   },
   fade: {
-    css: 'sepia(.26) saturate(.72) contrast(.9) brightness(1.01) hue-rotate(-5deg)',
-    grade: { sepia: .26, saturation: .72, contrast: .9, brightness: 1.01, hue: -5, warmth: .24, fade: .055 },
+    css: 'sepia(.34) saturate(.62) contrast(.84) brightness(1.03) hue-rotate(-7deg)',
+    grade: { sepia: .34, saturation: .62, contrast: .84, brightness: 1.03, hue: -7, warmth: .32, fade: .08 },
     grain: 18, chroma: .13, leak: .2, halation: .1, flash: .68
   },
   mono: {
-    css: 'grayscale(1) contrast(1.16) brightness(.94)',
-    grade: { grayscale: 1, contrast: 1.16, brightness: .94, fade: .025 },
+    css: 'grayscale(1) contrast(1.22) brightness(.92)',
+    grade: { grayscale: 1, contrast: 1.22, brightness: .92, fade: .015 },
     grain: 27, chroma: 0, leak: .01, halation: .035, flash: .7
   },
   raw: {
-    css: 'sepia(.02) saturate(.92) contrast(1.03) brightness(.97)',
-    grade: { sepia: .02, saturation: .92, contrast: 1.03, brightness: .97, warmth: .04, fade: .005 },
-    grain: 12, chroma: .05, leak: .07, halation: .04, flash: .62
+    css: 'saturate(.86) contrast(1.08) brightness(.95)',
+    grade: { saturation: .86, contrast: 1.08, brightness: .95, cool: .55, fade: .004 },
+    grain: 12, chroma: .08, leak: .035, halation: .025, flash: .6
   }
 };
 
@@ -91,6 +91,7 @@ function updateLiveFilter() {
   const cssFilter = filters[state.filter].css;
   video.style.filter = cssFilter;
   liveCanvas.style.filter = cssFilter;
+  $('#viewfinder').dataset.film = state.filter;
 }
 
 function stopCanvasPreview() {
@@ -577,6 +578,7 @@ function applyColorGrade(canvas, preset) {
     brightness = 1,
     hue = 0,
     warmth = 0,
+    cool = 0,
     fade = 0
   } = preset.grade;
   const radians = hue * Math.PI / 180;
@@ -631,6 +633,13 @@ function applyColorGrade(canvas, preset) {
     red += warmth * 18;
     green += warmth * 3;
     blue -= warmth * 12;
+    if (cool) {
+      const luminance = red * .213 + green * .715 + blue * .072;
+      const shadowBias = .42 + Math.max(0, 1 - luminance / 255) * .58;
+      red -= cool * 14 * shadowBias;
+      green += cool * 4 * shadowBias;
+      blue += cool * 22 * shadowBias;
+    }
     red = red * (1 - fade) + 28 * fade;
     green = green * (1 - fade) + 25 * fade;
     blue = blue * (1 - fade) + 22 * fade;

@@ -35,6 +35,8 @@ main { padding: 58px 30px 100px; }
 .camera-meta i { display: inline-block; width: 5px; height: 5px; margin-right: 7px; border-radius: 50%; background: var(--red); vertical-align: 1px; }
 .camera-meta b { color: var(--paper); font-weight: 400; }
 .viewfinder { position: relative; overflow: hidden; aspect-ratio: 4 / 3; background: #111; border: 1px solid #2a2a27; isolation: isolate; }
+.viewfinder::before { content: ''; position: absolute; inset: 0; z-index: 2; pointer-events: none; opacity: 0; transition: opacity .2s; }
+.viewfinder[data-film='raw']::before { opacity: 1; background: rgba(54,103,137,.2); mix-blend-mode: color; }
 .viewfinder::after { content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none; box-shadow: inset 0 0 80px rgba(0,0,0,.72); }
 .viewfinder video { width: 100%; height: 100%; display: block; object-fit: cover; opacity: 0; transition: opacity .25s; }
 .viewfinder video.ready { opacity: 1; }

@@ -20,23 +20,23 @@ let previewFrame = null;
 const filters = {
   c41: {
     css: 'sepia(.14) saturate(.82) contrast(.92) brightness(1)',
-    grade: { sepia: .14, saturation: .82, contrast: .92, brightness: 1, warmth: .18, fade: .03, midtoneLift: 8 },
-    grain: 20, chroma: .1, leak: .18, halation: .1, flash: .72
+    grade: { sepia: .14, saturation: .82, contrast: .92, brightness: .99, warmth: .18, fade: .03, midtoneLift: 5 },
+    grain: 20, chroma: .1, leak: .18, halation: .1, flash: .18
   },
   fade: {
     css: 'sepia(.34) saturate(.62) contrast(.84) brightness(1.03) hue-rotate(-7deg)',
     grade: { sepia: .34, saturation: .62, contrast: .84, brightness: 1.03, hue: -7, warmth: .32, fade: .08, midtoneLift: 11 },
-    grain: 18, chroma: .13, leak: .2, halation: .1, flash: .68
+    grain: 18, chroma: .13, leak: .2, halation: .1, flash: .16
   },
   mono: {
     css: 'grayscale(1) contrast(1.22) brightness(.92)',
     grade: { grayscale: 1, contrast: 1.22, brightness: .92, fade: .015, midtoneLift: 5 },
-    grain: 27, chroma: 0, leak: .01, halation: .035, flash: .7
+    grain: 27, chroma: 0, leak: .01, halation: .035, flash: .18
   },
   raw: {
     css: 'saturate(.86) contrast(1.08) brightness(.95)',
     grade: { saturation: .86, contrast: 1.08, brightness: .95, cool: .55, fade: .004, midtoneLift: 4 },
-    grain: 12, chroma: .08, leak: .035, halation: .025, flash: .6
+    grain: 12, chroma: .08, leak: .035, halation: .025, flash: .12
   }
 };
 
@@ -614,7 +614,7 @@ function normalizeSourceLight(canvas, faces) {
 
   if (sampleCount < 30) return;
   const averageFaceLuminance = luminanceSum / sampleCount;
-  const correction = Math.min(18, Math.max(0, 158 - averageFaceLuminance));
+  const correction = Math.min(12, Math.max(0, 152 - averageFaceLuminance));
   if (correction < .5) return;
 
   for (let index = 0; index < data.length; index += 4) {

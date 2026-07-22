@@ -767,55 +767,6 @@ function applyDirectFlash(canvas, faces, amount) {
   ctx.putImageData(image, 0, 0);
 }
 
-function restoreLipTone(sourceCanvas, targetCanvas, faces) {
-  if (!faces.length || state.filter === 'mono') return;
-  const sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true });
-  const targetCtx = targetCanvas.getContext('2d', { willReadFrequently: true });
-  const source = sourceCtx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
-  const target = targetCtx.getImageData(0, 0, targetCanvas.width, targetCanvas.height);
-  const w = targetCanvas.width;
-  const h = targetCanvas.height;
-
-  faces.forEach(landmarks => {
-    const left = averagePoint(landmarks, [61, 146, 91], w, h);
-    const right = averagePoint(landmarks, [291, 375, 321], w, h);
-    const top = averagePoint(landmarks, [0, 13, 37, 267], w, h);
-    const bottom = averagePoint(landmarks, [17, 14, 84, 314], w, h);
-    const center = { x: (left.x + right.x + top.x + bottom.x) / 4, y: (left.y + right.y + top.y + bottom.y) / 4 };
-    const width = Math.hypot(right.x - left.x, right.y - left.y) * 1.02;
-    const measuredHeight = Math.hypot(bottom.x - top.x, bottom.y - top.y) * 1.18;
-    const height = Math.max(measuredHeight, width * .19);
-    const angle = Math.atan2(right.y - left.y, right.x - left.x);
-    const cosine = Math.cos(angle);
-    const sine = Math.sin(angle);
-    const minX = Math.max(0, Math.floor(center.x - width * .56));
-    const maxX = Math.min(w - 1, Math.ceil(center.x + width * .56));
-    const minY = Math.max(0, Math.floor(center.y - height * .58));
-    const maxY = Math.min(h - 1, Math.ceil(center.y + height * .58));
-
-    for (let y = minY; y <= maxY; y += 1) {
-      for (let x = minX; x <= maxX; x += 1) {
-        const dx = x - center.x;
-        const dy = y - center.y;
-        const localX = dx * cosine + dy * sine;
-        const localY = -dx * sine + dy * cosine;
-        const distance = Math.sqrt((localX / (width * .54)) ** 2 + (localY / (height * .54)) ** 2);
-        if (distance >= 1) continue;
-        const feather = Math.min(1, (1 - distance) / .28);
-        const index = (y * w + x) * 4;
-        const tr = target.data[index];
-        const tg = target.data[index + 1];
-        const tb = target.data[index + 2];
-        const blend = feather * .82;
-        target.data[index] = tr * (1 - blend) + source.data[index] * blend;
-        target.data[index + 1] = tg * (1 - blend) + source.data[index + 1] * blend;
-        target.data[index + 2] = tb * (1 - blend) + source.data[index + 2] * blend;
-      }
-    }
-  });
-  targetCtx.putImageData(target, 0, 0);
-}
-
 function addHalation(canvas, amount) {
   if (!amount) return;
   const sample = document.createElement('canvas');
@@ -853,7 +804,7 @@ function addFilmGrain(canvas, preset) {
   const monochrome = state.filter === 'mono';
 
   for (let index = 0; index < grainImage.data.length; index += 4) {
-    const base = 128 + (Math.random() - .5) * preset.grain * 2.2;
+    const base = 128 + (Math.random() - .5) * preset.grain * 2.8;
     const colorNoise = preset.chroma * preset.grain;
     grainImage.data[index] = base + (monochrome ? 0 : (Math.random() - .5) * colorNoise);
     grainImage.data[index + 1] = base + (monochrome ? 0 : (Math.random() - .5) * colorNoise * .7);
@@ -865,7 +816,7 @@ function addFilmGrain(canvas, preset) {
   const ctx = canvas.getContext('2d');
   ctx.save();
   ctx.globalCompositeOperation = 'soft-light';
-  ctx.globalAlpha = .2 + preset.grain / 260;
+  ctx.globalAlpha = .25 + preset.grain / 230;
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(grainCanvas, 0, 0, canvas.width, canvas.height);
   ctx.restore();
@@ -965,13 +916,8 @@ async function createProcessedPhoto(source) {
   const fctx = filtered.getContext('2d');
   fctx.drawImage(canvas, 0, 0);
   applyColorGrade(filtered, filters[state.filter]);
-  const preFlash = document.createElement('canvas');
-  preFlash.width = filtered.width;
-  preFlash.height = filtered.height;
-  preFlash.getContext('2d').drawImage(filtered, 0, 0);
   applyDirectFlash(filtered, detectedFaces, filters[state.filter].flash);
   applyCoolFaceTone(filtered, detectedFaces);
-  restoreLipTone(preFlash, filtered, detectedFaces);
   applyFilmTexture(filtered);
   return filtered.toDataURL('image/jpeg', .94);
 }

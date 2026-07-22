@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0a0a09" />
+    <meta name="description" content="Four-cut film photo booth" />
+    <link rel="icon" href="%BASE_URL%favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
+    <title>45 ID — Photo Booth</title>
+  </head>
+  <body>
+    <div class="page-noise" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <a class="wordmark" href="#booth" aria-label="45 ID home">45<sup>ID</sup></a>
+      <span class="roll">FOUR CUT / 01</span>
+      <button class="icon-button" id="soundButton" type="button" aria-label="Toggle sound" aria-pressed="true">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9v6h4l5 4V5L9 9H5Zm12.5 3a4.5 4.5 0 0 0-2-3.74v7.48A4.5 4.5 0 0 0 17.5 12Z"/></svg>
+      </button>
+    </header>
+
+    <main id="booth">
+      <section class="booth" aria-label="Photo booth">
+        <div class="camera-column">
+          <div class="camera-meta">
+            <span><i></i> LIVE</span>
+            <span><b id="shotNumber">01</b> / 04</span>
+          </div>
+
+          <div class="viewfinder" id="viewfinder">
+            <video id="video" autoplay muted playsinline></video>
+            <canvas id="captureCanvas" hidden></canvas>
+            <div class="camera-placeholder" id="cameraPlaceholder">
+              <button class="start-button" id="startCamera" type="button" aria-label="Start camera">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4 7.5 6H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-3.5L15 4H9Zm3 12.5A4.5 4.5 0 1 1 12 7a4.5 4.5 0 0 1 0 9.5Zm0-2A2.5 2.5 0 1 0 12 9a2.5 2.5 0 0 0 0 5.5Z"/></svg>
+                <span>START</span>
+              </button>
+              <label class="upload-label" for="photoUpload">IMPORT</label>
+              <input id="photoUpload" type="file" accept="image/*" multiple hidden />
+            </div>
+            <div class="countdown" id="countdown" aria-live="assertive"></div>
+            <div class="flash" id="flash" aria-hidden="true"></div>
+            <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+          </div>
+
+          <div class="camera-actions">
+            <button class="round-button" id="flipCamera" type="button" aria-label="Flip camera">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15.5 5-2-2H9L7 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4.5ZM12 16.5A4.5 4.5 0 1 1 15.46 9l-1.5 1.5A2.5 2.5 0 1 0 14.5 13H12l3.5-3.5L19 13h-2.45A4.5 4.5 0 0 1 12 16.5Z"/></svg>
+            </button>
+            <button class="shutter" id="shutter" type="button" aria-label="Take photo" disabled><span></span></button>
+            <button class="round-button" id="uploadButton" type="button" aria-label="Import photos">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2Zm0 16H5v-3.5l3.5-3.5 2.5 2.5 2.5-3 5.5 5V19ZM8.5 10A1.5 1.5 0 1 1 8.5 7a1.5 1.5 0 0 1 0 3Z"/></svg>
+            </button>
+          </div>
+
+          <div class="contact-sheet" id="contactSheet" aria-label="Captured photos">
+            <div class="thumb empty"><span>01</span></div>
+            <div class="thumb empty"><span>02</span></div>
+            <div class="thumb empty"><span>03</span></div>
+            <div class="thumb empty"><span>04</span></div>
+          </div>
+        </div>
+
+        <aside class="controls">
+          <fieldset>
+            <legend>FILM</legend>
+            <div class="film-options">
+              <button type="button" class="film active" data-filter="c41" aria-pressed="true"><i class="c41"></i><span>C-41</span></button>
+              <button type="button" class="film" data-filter="fade" aria-pressed="false"><i class="fade"></i><span>FADED</span></button>
+              <button type="button" class="film" data-filter="mono" aria-pressed="false"><i class="mono"></i><span>MONO</span></button>
+              <button type="button" class="film" data-filter="raw" aria-pressed="false"><i class="raw"></i><span>RAW</span></button>
+            </div>
+          </fieldset>
+
+          <fieldset class="face-panel">
+            <legend>FACE <small id="faceStatus">LOADING</small></legend>
+            <label class="slider-row"><span>EYES</span><input id="eyeRange" type="range" min="0" max="100" value="40" /><output id="eyeValue">40</output></label>
+            <label class="slider-row"><span>NOSE</span><input id="noseRange" type="range" min="0" max="100" value="40" /><output id="noseValue">40</output></label>
+            <label class="slider-row"><span>JAW</span><input id="jawRange" type="range" min="0" max="100" value="8" /><output id="jawValue">8</output></label>
+            <label class="slider-row"><span>FACE</span><input id="faceRange" type="range" min="0" max="100" value="30" /><output id="faceValue">30</output></label>
+            <label class="slider-row"><span>SKIN</span><input id="skinRange" type="range" min="0" max="100" value="20" /><output id="skinValue">20</output></label>
+          </fieldset>
+
+          <p class="timer-label" id="cameraHint">3 SEC</p>
+        </aside>
+      </section>
+
+      <section class="studio" id="studio" aria-label="Print studio" hidden>
+        <div class="result-stage"><canvas id="resultCanvas" aria-label="Finished photo print"></canvas></div>
+        <div class="print-controls">
+          <fieldset>
+            <legend>PRINT</legend>
+            <div class="frame-options">
+              <button type="button" class="frame active" data-frame="contact" aria-pressed="true"><i class="contact"><b></b><b></b><b></b><b></b></i><span>CONTACT</span></button>
+              <button type="button" class="frame" data-frame="strip" aria-pressed="false"><i class="strip"><b></b><b></b><b></b><b></b></i><span>STRIP</span></button>
+              <button type="button" class="frame" data-frame="noir" aria-pressed="false"><i class="noir"><b></b><b></b><b></b><b></b></i><span>NOIR</span></button>
+            </div>
+          </fieldset>
+          <div class="finish-actions">
+            <button type="button" class="save-button" id="downloadButton">SAVE</button>
+            <button type="button" id="shareButton">SHARE</button>
+            <button type="button" id="restartButton">RETAKE</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="/src/app.js"></script>
+  </body>
+</html>

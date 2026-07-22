@@ -1,0 +1,10 @@
+{
+  "name": "45 ID Photo Booth",
+  "short_name": "45 ID",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0a0a09",
+  "theme_color": "#0a0a09",
+  "icons": [{ "src": "./favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

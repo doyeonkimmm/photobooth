@@ -37,6 +37,11 @@ const filters = {
     css: 'saturate(.86) contrast(1.08) brightness(.95)',
     grade: { saturation: .86, contrast: 1.08, brightness: .95, cool: .55, fade: .004, midtoneLift: 4 },
     grain: 12, chroma: .08, leak: .035, halation: .025, flash: .12
+  },
+  digi: {
+    css: 'saturate(.84) contrast(1.16) brightness(1.07) sepia(.035) hue-rotate(-4deg)',
+    grade: { sepia: .035, saturation: .84, contrast: 1.16, brightness: 1.035, warmth: .08, cool: .16, green: .22, fade: 0, midtoneLift: 3 },
+    grain: 18, chroma: .16, leak: .025, halation: .045, flash: .78
   }
 };
 
@@ -72,10 +77,10 @@ async function initFaceModel() {
     state.faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
       baseOptions: { modelAssetPath: publicAsset('models/face_landmarker.task'), delegate: 'GPU' },
       runningMode: 'IMAGE',
-      numFaces: 4,
-      minFaceDetectionConfidence: .45,
-      minFacePresenceConfidence: .45,
-      minTrackingConfidence: .45
+      numFaces: 6,
+      minFaceDetectionConfidence: .36,
+      minFacePresenceConfidence: .36,
+      minTrackingConfidence: .4
     });
     state.faceReady = true;
     status.textContent = 'READY';
@@ -703,6 +708,7 @@ function applyColorGrade(canvas, preset) {
     hue = 0,
     warmth = 0,
     cool = 0,
+    green: greenCast = 0,
     midtoneLift = 0,
     fade = 0
   } = preset.grade;
@@ -764,6 +770,13 @@ function applyColorGrade(canvas, preset) {
       red -= cool * 14 * shadowBias;
       green += cool * 4 * shadowBias;
       blue += cool * 22 * shadowBias;
+    }
+    if (greenCast) {
+      const luminance = red * .213 + green * .715 + blue * .072;
+      const shadowBias = .28 + Math.max(0, 1 - luminance / 255) * .72;
+      red -= greenCast * 5 * shadowBias;
+      green += greenCast * 17 * shadowBias;
+      blue += greenCast * 5 * shadowBias;
     }
     if (midtoneLift) {
       const luminance = Math.min(255, Math.max(0, red * .213 + green * .715 + blue * .072));
